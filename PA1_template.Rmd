@@ -1,25 +1,230 @@
----
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
----
+Reproducible Research - Peer Assessment 1
+=========================================
+
+In this assignment, data acquired from a personal movement monitoring device will be analyzed to compare activity
+trends throughout the day during weekdays and during weekends.  
+This document has 3 main sections:  
+- Preparation and Data acquisition  
+- Exploratory data analysis  
+- Results  
+
+The questions asked in the assignment are answered in the **Results** section.  
 
 
-## Loading and preprocessing the data
+###Preparation and data acquisition  
+
+In this section the data and required libraries are loaded and some variables are created.  
+
+####Libraries
+````{r, echo=TRUE}
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(data.table)
+```
+
+####Data acquisition  
+```{r, echo=TRUE}
+#setwd("~/INFOMEDIA/Consultoría/Curso Data Scientist/5 - Reproducible Research/Peer Assessment 1")
+activity <- read.csv("activity.csv")
+activity$date <- as.Date(activity$date, "%Y-%m-%d")
+summary(activity)
+```
+
+####Creation of new variables  
+The following variables will be needed during the assignment and are created here:  
+  + Day of week  
+  + Weekend indicator  
+
+```{r, echo=TRUE}
+activity <- cbind(activity, weekdays(activity$date), format(activity$date+3, "%U"))
+names(activity) <- c("steps","date","interval", "weekday", "weekno")
+activity <- cbind(activity, activity$weekday %in% c("Saturday","Sunday"))
+names(activity) <- c("steps","date","interval", "weekday", "weekno","is.weekend")
+
+summary(activity)
+```
+
+The **activity** data frame has **`r nrow(activity)`** rows.  
+
+###Exploratory Analysis
+This section shows some plots of the data to allow further understanding of it.  
+
+```{r, echo=TRUE}
+#Sum of steps per day
+plot(activity$date,activity$steps)
+
+dataMelt <- melt(activity, id=c("date","weekday","weekno","is.weekend","interval"), measure.vars="steps")
+sumData <- dcast(dataMelt, date+weekno+weekday+is.weekend+interval~variable, sum)
+
+#Sum of steps per day of week
+gSumByDayofWeek <- ggplot(sumData, aes(weekday,steps)) + 
+        geom_bar(stat="identity", fill="steelblue") + 
+        labs(title="Sum of Steps by Day of Week") +
+        labs(x="Day of Week", y="Steps")
+print(gSumByDayofWeek)
+
+#Sum of steps per week
+gSumByWeek <- ggplot(sumData, aes(weekno,steps)) + 
+        geom_bar(stat="identity", fill="steelblue") + 
+        labs(title="Sum of Steps by Week") +
+        labs(x="Week", y="Steps")
+print(gSumByWeek)
+
+#Sum of steps per Time Interval
+gSumByTimeInt <- ggplot(sumData, aes(interval,steps)) + 
+        geom_bar(stat="identity", fill="steelblue") + 
+        labs(title="Sum of Steps by Time Interval") +
+        labs(x="Interval", y="Steps")
+print(gSumByTimeInt)
+
+#Sum of steps per type of day (weekday vs weekend)
+gSumByDayType <- ggplot(sumData, aes(is.weekend,steps)) + 
+        geom_bar(stat="identity", fill="steelblue") + 
+        labs(title="Sum of Steps by Type of Day") +
+        labs(x="Weekend", y="Steps")
+print(gSumByDayType)
+```
+
+###RESULTS  
+
+This section shows the answeres to the questions asked in the assignment.  
+
+###What is mean total number of steps taken per day?
+
+Total number of steps per day
+````{r, echo=TRUE}
+gSumByDay <- ggplot(sumData, aes(date,steps)) + 
+        geom_bar(stat="identity", fill="steelblue") + 
+        labs(title="Sum of Steps by Date") +
+        labs(x="Date", y="Steps")
+print(gSumByDay)
+```
+
+Mean & Median of steps per day
+````{r, echo=TRUE}
+dt <- data.table(activity)
+dt2 <- dt[,list(sumsteps=sum(steps)),by=date]
+results <- c(mean(dt2$sumsteps, na.rm=T), median(dt2$sumsteps, na.rm=T))
+names(results) <- c("mean", "median")
+
+results
+```
+
+###What is the average daily activity pattern?
+
+####1. Time series plot of the 5-minute interval and the average number of steps taken, averaged across all days  
+````{r, echo=TRUE}
+avgData <- dcast(dataMelt, interval~variable, mean, na.rm=T)
+
+gAvgByTimeInt <- ggplot(avgData, aes(interval,steps)) + 
+        geom_line() + 
+        labs(title="Average Steps by Time Interval") +
+        labs(x="Time Interval", y="Steps")
+print(gAvgByTimeInt)
+```
 
 
-
-## What is mean total number of steps taken per day?
-
-
-
-## What is the average daily activity pattern?
+####2. Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?  
+The interval with the highest average number of steps is interval **`r avgData[avgData$steps==max(avgData$steps),1]`** with **`r avgData[avgData$steps==max(avgData$steps),2]`** steps
 
 
+##Inputting missing values  
+####1. Calculate and report the total number of missing values in the dataset.   
 
-## Imputing missing values
+The number of rows in the data set with missing values is **`r nrow(activity[is.na(activity$steps),])`**
+out of **`r nrow(activity)`** which represents **`r round(nrow(activity[is.na(activity$steps),]) / nrow(activity) * 100, digits=2)`%**.  
+
+####2. Devise a strategy for filling in all of the missing values in the dataset.  
+NA values will be substituted with the mean of the Time Interval across all 60 days. 
+
+####3. Create a new dataset that is equal to the original dataset but with the missing data filled in  
+Creating a tidy data set called **tidyactivity**.
+```{r, echo=TRUE}
+#Determining the average number of steps per time interval using only rows with no NA's
+cleanactivity <- activity[!is.na(activity$steps),]
+cleandataMelt <- melt(cleanactivity, id="interval", measure.vars="steps")
+avgSteps <- dcast(cleandataMelt, interval~variable, mean, na.rm=T)
+
+#Merging original data frame with new averages data frame
+tidyactivity <- merge(activity, avgSteps, by.x="interval", by.y="interval", sort=F)
+
+#Substituting NA's with corresponding averages
+tidyactivity[is.na(tidyactivity$steps.x),2] <- tidyactivity[is.na(tidyactivity$steps.x),7]
+
+#Formatting the new data frame
+tidyactivity <- tidyactivity[,c(2,3,1,4,5,6)]
+names(tidyactivity) <- c("steps","date","interval", "weekday", "weekno", "is.weekend")
+```
+
+The original data frame has `r nrow(activity)` rows and the new one has `r nrow(tidyactivity)`.  
+The original data frame has `r nrow(activity[is.na(activity$steps),])` NAs and the new one has `r nrow(tidyactivity[is.na(tidyactivity$steps),])`.  
+
+####4. Make a histogram of the total number of steps taken each day and calculate and report the mean and median total number of steps taken per day.
+
+Total number of steps per day of tidy data
+````{r, echo=TRUE}
+tidydataMelt <- melt(tidyactivity, id=c("date","weekday","weekno","is.weekend","interval"), measure.vars="steps")
+sumtidyData <- dcast(tidydataMelt, date+weekno+weekday+is.weekend+interval~variable, sum)
+
+gSumByDaytidy <- ggplot(sumtidyData, aes(date,steps)) + 
+        geom_bar(stat="identity", fill="steelblue") + 
+        labs(title="Sum of Steps by Date") +
+        labs(x="Date", y="Steps")
+print(gSumByDaytidy)
+```
+
+Mean & Median of steps per day of tidy data set
+```{r, echo=TRUE}
+dtnew <- data.table(tidyactivity)
+dt2new <- dtnew[,list(sumsteps=sum(steps)),by=date]
+resultsnew <- c(mean(dt2new$sumsteps), median(dt2new$sumsteps))
+names(resultsnew) <- c("mean", "median")
+
+resultsnew
+````
+
+The **mean** does not change as the values inputed are equal to the mean of the data prior to the substitution of NA's.  
+
+The **median** of the data does increase slightly to align itself with the mean. 
 
 
+##Are there differences in activity patterns between weekdays and weekends?
+####1. Create a new factor variable in the dataset for "weekday" and "weekend".
+A boolean variable **is.weekend** was created earlier. This variable shows if the date is a weekend (TRUE) or not (FALSE). In this step, the variable will simply be modified to show "Weekend" or "Weekday" accordingly.  
+```{r, echo=TRUE}
+tidyactivity$is.weekend[tidyactivity$is.weekend==T] <- "Weekend"
+tidyactivity$is.weekend[tidyactivity$is.weekend==F] <- "Weekday"
+````
 
-## Are there differences in activity patterns between weekdays and weekends?
+####2. Make a panel plot containing a time series plot of the 5-minute interval and the average number of steps taken
+
+```{r, echo=TRUE}
+#Generating data set
+tidydataMelt <- melt(tidyactivity, id=c("date","weekday","weekno","is.weekend","interval"), measure.vars="steps")
+avgtidyData <- dcast(tidydataMelt, interval+is.weekend~variable, mean)
+
+#Plotting
+gtidyAvgByTimeInt <- ggplot(avgtidyData, aes(interval,steps)) + 
+        geom_line(colour="steelblue") + 
+        labs(title="Average Steps by Time Interval") +
+        labs(x="Time Interval", y="Steps") +
+        facet_wrap(~is.weekend, nrow=2)
+print(gtidyAvgByTimeInt)
+```
+
+Wekends seem to have more activity during midday. Let's investigate further by placing both graphs one on top of the other.
+
+```{r, echo=TRUE}
+#Plotting Weekend and Weekday one on top of the other
+gtidyAvgByTimeInt2 <- ggplot(data = avgtidyData, aes(x = interval,y = steps)) + 
+        geom_line(aes(color=is.weekend, group=is.weekend)) + 
+        geom_line(aes(color=is.weekend, group=is.weekend)) + 
+        labs(title="Average Steps by Time Interval") +
+        labs(x="Time Interval", y="Steps")
+print(gtidyAvgByTimeInt2)
+```
+
+Indeed, there is more activity during the morning on **weekdays** (between time intervals 500 and 800), but
+activity during the afternoon is higher on **weekends** (between time intervals 1000 and 1800).  
+Shortly after the 1800 time interval, activity during **weekdays** spikes over that of **weekends**, but it soon drops back to levels under those of **weekends** for the rest of the day.
